@@ -1,0 +1,238 @@
+`timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: IITG
+// Engineer: Subhash_Vemula
+// 
+// Create Date: 06.11.2022 19:41:23
+// Design Name: 
+// Module Name: fsm
+// Project Name: 
+// Target Devices: 
+// Tool Versions: 
+// Description: 
+// 
+// Dependencies: 
+// 
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+// 
+//////////////////////////////////////////////////////////////////////////////////
+
+
+module pipeline_8bit(clk1,clk2 ,rst,Reg);
+input rst;
+input clk1,clk2;  //2 phase clock
+reg memory_read,memory_write;
+reg FLAG[1:0]; //let flag[0]=zero and flag[1]=carry;
+//LATCHES BETWEEN STAGES AND OTHER REGISTERS
+reg[7:0] PC,IF_ID_IR,IF_ID_NPC;
+reg[7:0] IF_ID_DATA,IF_ID_ADDRESS,ID_EX_DATA,ID_EX_ADDRESS,EX_MEM_DATA,EX_MEM_ADDRESS;
+reg[7:0] ID_EX_IR,ID_EX_NPC,ID_EX_A,ID_EX_B,ID_EX_Imm;
+reg[2:0] ID_EX_type,EX_MEM_type;//MEM_WB_type;
+reg[7:0]EX_MEM_IR,EX_MEM_ALUOut,EX_MEM_B;
+//reg[7:0] MEM_WB_IR,MEM_WB_ALUOut,MEM_WB_LMD;
+output reg[7:0] Reg[0:3];
+reg[7:0]Mem[0:15];
+parameter LD=4'b0000,ST=4'b0001,MR=4'b0011,MI=4'b0010,SUM=4'b0100,
+          SMI=4'b1100,SB=4'b0101,SBI=4'b1101,CM=4'b0111,CMI=4'b1111,ANR=4'b0110,ANI=4'b1110,
+          ORR=4'b1000,ORI=4'b1001,XRR=4'b1010,XRI=4'b1011;
+//DIVIDING THE INSTRUCION ACCORDING TO ITS TYPE
+parameter RR_ALU=3'b000,RM_ALU=3'b001,LOAD=3'b010,STORE=3'b011,HALT=3'b101;
+reg HALTED;
+always@(posedge clk1 or posedge rst)          //Instruction fetch stage
+ if(HALTED==0)
+  begin
+   IF_ID_IR  <=   Mem[PC];     //getting our instructions from memory
+   IF_ID_NPC <=   PC+1;        //incrementing Both PC and NPC
+   PC        <=   PC+1;
+//   IF_ID_ADDRESS   <= {{4{Mem[PC][3]}},{Mem[PC][3:0]}};
+//   IF_ID_DATA      <= {{6{Mem[PC][1]}},{Mem[PC][1:0]}};
+   end
+   
+always@(posedge clk2 or posedge rst)         //INSTRUCTION DECODE stage
+ if(HALTED==0)
+  begin
+  case(IF_ID_IR[7:4])
+  LD: begin
+        if(IF_ID_IR[3:0]==4'b1111) ID_EX_type<=HALT;   //defining our own halt LD1111
+        else                       ID_EX_type<=LOAD;   //load type
+      end
+  ST                         :     ID_EX_type<=STORE;  //store type
+  MR,SUM,SB,CM,ANR,ORR,XRR   :     ID_EX_type<=RR_ALU; //register-register type
+  MI,SMI,SBI,CMI,ANI,ORI,XRI :     ID_EX_type<=RM_ALU; //register-memory type
+  default :                        ID_EX_type<=HALT;   //setting default as halt
+endcase
+  ID_EX_A   <=  Reg[0];
+  ID_EX_NPC <=  IF_ID_NPC;
+  ID_EX_IR  <=  IF_ID_IR;
+  ID_EX_DATA<= {{6{IF_ID_IR[1]}},{IF_ID_IR[1:0]}};
+  ID_EX_ADDRESS<={{4{IF_ID_IR[3]}},{IF_ID_IR[3:0]}};
+//  if(ID_EX_type==STORE||ID_EX_type==LOAD)   begin 
+//         ID_EX_Imm<={{4{IF_ID_IR[3]}},{IF_ID_IR[3:0]}}; //sign extending imm by 4 bits to get address in store and load instructions
+//         ID_EX_B  <={{4{IF_ID_IR[3]}},{IF_ID_IR[3:0]}};
+//         end
+//  else                                      ID_EX_Imm<={{6{IF_ID_IR[1]}},{IF_ID_IR[1:0]}}; //sign extending imm by 6 bits to get data in other instructions
+//  if(ID_EX_type==RR_ALU)                    ID_EX_B  <=Reg[IF_ID_IR[1:0]];
+//  if(ID_EX_type==RM_ALU)                    ID_EX_B  <={{6{IF_ID_IR[1]}},{IF_ID_IR[1:0]}};  
+end
+
+always @(posedge clk1 or posedge rst)         //EXECUTION STAGE
+ if(HALTED==0)
+  begin
+  EX_MEM_type<= ID_EX_type;
+  EX_MEM_IR  <= ID_EX_IR; 
+  EX_MEM_DATA <=ID_EX_DATA;
+  EX_MEM_ADDRESS<=ID_EX_ADDRESS;
+  case(ID_EX_type)
+   RM_ALU :begin 
+             case(ID_EX_IR[7:4])//OPCODE
+               MI: begin
+                         EX_MEM_ALUOut={{7{ID_EX_DATA[1]}},{ID_EX_DATA[0]}};
+                      end   
+               SMI:  begin
+                           if(ID_EX_DATA[1]==0)
+                          {FLAG[1],EX_MEM_ALUOut[7:0]}<= ID_EX_A+ID_EX_DATA[0];
+                          else 
+                          {FLAG[1],EX_MEM_ALUOut[7:0]}<= ID_EX_A-ID_EX_DATA[0];
+                           FLAG[0]={EX_MEM_ALUOut==8'b0};
+                         end
+               SBI : begin
+                          if(ID_EX_DATA[1]==0)
+                          {FLAG[1],EX_MEM_ALUOut[7:0]}<= ID_EX_A-ID_EX_DATA;
+                          else
+                           {FLAG[1],EX_MEM_ALUOut[7:0]}<= ID_EX_A+ID_EX_DATA;
+                           FLAG[0]={EX_MEM_ALUOut==8'b0};
+                        end
+               ANI: begin
+                         EX_MEM_ALUOut<= ID_EX_A&ID_EX_DATA;
+                         FLAG[1]=1'b0;
+                         FLAG[0]={EX_MEM_ALUOut==8'b0};
+                         end
+               ORI: begin
+                         EX_MEM_ALUOut<= ID_EX_A|ID_EX_DATA;
+                         FLAG[0]={EX_MEM_ALUOut==8'b0};
+                         end
+               XRI: begin
+                         EX_MEM_ALUOut<= ID_EX_A^ID_EX_DATA;
+                         FLAG[0]={EX_MEM_ALUOut==8'b0};
+                         end
+               CMI : begin
+                         if(ID_EX_A==ID_EX_DATA) begin
+                         FLAG[1]<=1'b0;
+                         FLAG[0]<=1'b1;
+                         EX_MEM_ALUOut<=ID_EX_A;
+                         end
+                         if(ID_EX_A>ID_EX_DATA) begin
+                         FLAG[1]<=1'b0;
+                         FLAG[0]<=1'b0;
+                         EX_MEM_ALUOut<=ID_EX_A;
+                         end
+                         else begin
+                         FLAG[1]=1'b1;
+                         FLAG[0]=1'b0;
+                         EX_MEM_ALUOut<=ID_EX_A;
+                         end
+                        end
+               default: begin
+                        EX_MEM_ALUOut<= 8'hxx;
+                        FLAG[0]=1'b0;
+                        FLAG[1]=1'b0;
+                        end
+                endcase
+                 end
+   RR_ALU :begin 
+             case(ID_EX_IR[7:4])//OPCODE
+               MR: begin
+                         EX_MEM_ALUOut=Reg[ID_EX_ADDRESS[1:0]];
+                      end   
+               SUM:  begin
+                          {FLAG[1],EX_MEM_ALUOut[7:0]}<= ID_EX_A+Reg[ID_EX_ADDRESS[1:0]];
+                          FLAG[0]={EX_MEM_ALUOut==8'b0};
+                         end
+               SB : begin
+                         
+                          {FLAG[1],EX_MEM_ALUOut[7:0]}<= ID_EX_A-Reg[ID_EX_ADDRESS[1:0]];
+                          FLAG[0]={EX_MEM_ALUOut==8'b0};
+                        end
+               ANR: begin
+                         EX_MEM_ALUOut<= Reg[ID_EX_ADDRESS[3:2]]&Reg[ID_EX_ADDRESS[1:0]];
+                         FLAG[1]=1'b0;
+                         FLAG[0]={EX_MEM_ALUOut==8'b0};
+                         end
+               ORR: begin
+                         EX_MEM_ALUOut<= Reg[ID_EX_ADDRESS[3:2]]|Reg[ID_EX_ADDRESS[1:0]];
+                         FLAG[0]={EX_MEM_ALUOut==8'b0};
+                         end
+               XRR: begin
+                         EX_MEM_ALUOut<= Reg[ID_EX_ADDRESS[3:2]]^Reg[ID_EX_ADDRESS[1:0]];
+                         FLAG[0]={EX_MEM_ALUOut==8'b0};
+                         end
+               CM : begin
+                         if(ID_EX_A==Reg[ID_EX_ADDRESS[1:0]]) begin
+                         FLAG[1]<=1'b0;
+                         FLAG[0]<=1'b1;
+                         EX_MEM_ALUOut<=ID_EX_A;
+                         end
+                         if(ID_EX_A>Reg[ID_EX_ADDRESS[1:0]]) begin
+                         FLAG[1]<=1'b0;
+                         FLAG[0]<=1'b0;
+                         EX_MEM_ALUOut<=ID_EX_A;
+                         end
+                         else begin
+                         FLAG[1]=1'b1;
+                         FLAG[0]=1'b0;
+                         EX_MEM_ALUOut<=ID_EX_A;
+                         end
+                        end
+               default: begin
+                        EX_MEM_ALUOut<= 8'hxx;
+                        FLAG[0]=1'b0;
+                        FLAG[1]=1'b0;
+                        end
+                endcase
+                 end
+   LOAD,STORE:begin
+                EX_MEM_ALUOut <=ID_EX_ADDRESS;
+//                EX_MEM_B      <=ID_EX_ADDRESS;
+                end
+  endcase
+  end 
+always @(posedge clk2 or posedge rst)     //MEMORY or WRITE_BACK stage
+  begin
+  if(rst) {
+ PC,IF_ID_IR,IF_ID_NPC,
+ID_EX_IR,ID_EX_NPC,ID_EX_A,ID_EX_B,ID_EX_Imm,
+ID_EX_type,EX_MEM_type,
+EX_MEM_IR,EX_MEM_ALUOut,EX_MEM_B,memory_write,memory_read
+}=0;
+  if(HALTED==0)
+  begin 
+//    MEM_WB_type <=EX_MEM_type;
+//    MEM_WB_IR   <=EX_MEM_IR;
+    case(EX_MEM_type)
+     RR_ALU,RM_ALU  : begin
+                      Reg[EX_MEM_IR[3:2]] <= EX_MEM_ALUOut;
+                       memory_write<=1'b0;
+                      memory_read<=1'b0;
+                      end
+     LOAD           : begin
+                      memory_write<=1'b0;
+                      memory_read<=1'b1;
+                      Reg[0]       <= Mem[EX_MEM_ALUOut[3:0]];
+                      end
+     STORE          :  begin
+                        memory_write<=1'b1;
+                        memory_read<=1'b0;
+                       Mem[EX_MEM_ALUOut[3:0]]<= Reg[0];
+                       end
+     HALT           : begin 
+                      HALTED<= 1'b1;
+                      memory_write<=1'b0;
+                      memory_read<=1'b0;
+                      end
+     default: HALTED<=1'b1;
+    endcase
+    end 
+    end
+  endmodule

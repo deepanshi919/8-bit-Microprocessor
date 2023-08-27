@@ -1,0 +1,75 @@
+`timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: IITG
+// Engineer: Subhash Vemula
+// 
+// Create Date: 11.11.2022 15:13:42
+// Design Name: behavioral
+// Module Name: test_bench
+// Project Name: 8 bit processor
+// Target Devices: 
+// Tool Versions: 
+// Description: we designed a pipelined 8 bit processor with 16 customized instructions
+// 
+// Dependencies: 
+// 
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+// 
+//////////////////////////////////////////////////////////////////////////////////
+
+
+module test_bench8bit;
+reg clk1,clk2; //2 phase clock initialistion
+reg rst=1;//reset 
+wire [7:0] Reg[0:3];   //internal registers
+integer k;
+pipeline_8bit DUT (clk1,clk2,rst,Reg);
+
+initial
+ begin
+  clk1=0;clk2=0;
+  repeat(30)      //Generation of 2 phase clock for isolation of consecutive stages
+   begin
+    #5clk1=1;#5 clk1=0;
+    #5 clk2=1;#5 clk2=0;
+    end
+end
+initial
+ begin
+ rst=1;#1;rst=0; //resetting everything once before our program starts
+  for(k=0;k<4;k=k+1) //Initialising all the registers to 0 before our program
+   DUT.Reg[k]=0;
+   //DATA HAZARD HANDLING IS DONE BY INTRODUCING DUMMY INSTRUCTIONS MANUALLY WHEREVER REQUIRED
+   DUT.Mem[0]=8'b00100000;
+//     subhash.Mem[2]=8'b10000101;//an example of dummy instruction to skip a clock cycle and handle data hazard
+   DUT.Mem[1]=8'b00100101;
+   DUT.Mem[2]=8'b10001111;
+   DUT.Mem[3]=8'b01000001;
+//   subhash.Mem[3]=8'b10000101;//just a dummy instruction to skip a clk cylce
+//   subhash.Mem[4]=8'b01100001;//MI 00 01
+////    subhash.Mem[5]=8'b10000101;//just a dummy instruction to skip a clk cylce
+//   subhash.Mem[5]=8'b01001101;//SUM 11 01
+//  subhash.Mem[6]=8'b10000101;//just a dummy instruction to skip a clk cylce
+//  subhash.Mem[7]=8'b11011000;//SBI r2 00
+//    subhash.Mem[8]=8'b10000101;//just a dummy instruction to skip a clk cylce
+//    subhash.Mem[9]=8'b10001101;//LD 14TH MEMORY
+//    subhash.Mem[10]=8'b00100101; //MI Rd,01
+//    subhash.Mem[11]=8'b10101001;//XRR RD RS
+//    subhash.Mem[12]=8'b00000010;//12th memory unit having 2;
+//    subhash.Mem[13]=8'b00010000;//13th memory unit having 16
+   DUT.HALTED=0; //RESET HALTED FLIP FLOP TO 0 BEFORE START
+   DUT.PC=0; // SETTING THE PROGRAM COUNTER TO 0;
+   
+   #400 //WAITING FOR THE PROGRAM TO END
+   for(k=0;k<4;k=k+1)
+    $display("R%1d : %2d",k,DUT.Reg[k]);
+   end
+initial
+ begin
+  $dumpfile("DUT.vcd");
+  $dumpvars(0,pipeline_8bit);
+  #400 $finish;
+  end
+endmodule
